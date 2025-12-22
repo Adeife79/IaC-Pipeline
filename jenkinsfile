@@ -1,0 +1,70 @@
+pipeline {
+    agent any
+    tools {
+        terraform 'terraform-11'
+    }
+    stages {
+        stage('Git Checkout'){
+            steps {
+                git branch: 'main', url:''
+            }
+        }
+
+        stage ('Create S3 Bucket') {
+            steps {
+                withCredentials([[accessKeyVariable: 'AWS_ACCESS_KEY_ID', 
+                                  credentialsId: 'aws-jenkins-creds', 
+                                  secretKeyVariable: 'AWS_SECRET_ACCESS_KEY']]) {
+
+                                    sh "aws s3api create-bucket --bucket adeife-terraform-state-bucket --region eu-north-1 "
+                                  }
+            }
+        }
+
+        stage('Terraform Init'){
+            steps {
+                sh 'terraform init'
+            }
+        }
+        stage('Terraform Plan'){
+            steps {
+                sh 'terraform plan'
+            }
+        }
+    
+        stage('Terraform Apply / Destroy'){
+            steps {
+                script {
+                    if (params.action == 'Apply') {
+                        if (params.auto_approve) {
+                            def plan = readFile 'tfplan.txt'
+                            input message: 'Approve Terraform Apply?',
+                            parameters: [text(name: 'Plan', description: 'Please review the plan', defaultValue: plan)]
+                        }
+
+                        sh 'terraform ${action} -input=false tfplan'
+                    } else if (params.action == 'Destroy') {
+                        sh 'terraform ${action} --auto-approve'
+                    }  else {
+                        error "Invalid action selected. Please choose either 'apply' or 'destroy'."
+                    }
+                }
+            }
+        }
+
+        stage('Output EC2 IP and Key') {
+            steps {
+                script {
+                    EC2_PUBLIC_IP = sh(script: "terraform output -raw ec2_public_ip", returnStdout: true).trim()
+                    KEY_PATH = sh(script: "terraform output -raw private_key > key.pem && chmod 400 key.pem", returnStdout: true).trim()
+                }  
+                sh "chmod 600 ${KEY_PATH}"
+                    sh "scp -i docker.sh ec2-user@${EC2_PUBLIC_IP}:~/"
+                sh "ssh -o StrictHostKeyChecking=no -i key.pem ec2-user@${EC2_PUBLIC_IP} 'chmod +x docker.sh && ./docker.sh'"
+                    
+                echo "Connected to EC2 Instance at IP: ${EC2_PUBLIC_IP}"  
+                echo "App Running on http://${EC2_PUBLIC_IP}:3000"
+            }
+        }
+    }
+}
