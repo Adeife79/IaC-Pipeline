@@ -4,20 +4,20 @@ pipeline {
     environment {
         AWS_ACCESS_KEY_ID = credentials('aws-access-key')
         AWS_SECRET_ACCESS_KEY = credentials('aws-secret-access-key')
-        AWS_REGION = 'eu-north-1'
+        AWS_DEFAULT_REGION = 'eu-north-1'
     } 
     
     stages {
         stage('Git Checkout'){
             steps {
-                git branch: 'main', url:'https://github.com/E335-comma/aws-jenkins-pipeline'
+                git branch: 'main', url:'https://github.com/Adeife79/IaC-Pipeline.git'
             }
         }
     
 
         stage ('Create S3 Bucket') {
             environment {
-                AWS_REGION = 'eu-north-1'
+                AWS_DEFAULT_REGION = 'eu-north-1'
                 BUCKET_NAME = "adeife-terraform-state-bucket"
             }
                 
@@ -59,58 +59,47 @@ pipeline {
         }
 
         stage('Build and Run Docker App via SSM') {
-            environment {
-                AWS_REGION = 'eu-north-1'
-            }
             steps {
                 script { 
-                    EC2_PUBLIC_IP = sh(
+                    env.EC2_PUBLIC_IP = sh(
                         script: "cd terraform-config && terraform output -raw ec2_public_ip",
                         returnStdout: true
                     ).trim()
-                    INSTANCE_ID = sh(
+                    env.INSTANCE_ID = sh(
                         script: 'cd terraform-config && terraform output -raw instance_id',
                         returnStdout: true
                     ).trim()
                 }
 
                 sh '''
-                deploy_docker() {
-                    INSTANCE_ID=$1
-                    AWS_REGION=$2
-                    EC2_PUBLIC_IP=$3
-
-                    aws ec2 wait instance-running --instance-ids $INSTANCE_ID --region $AWS_REGION
-                    aws ssm wait instance-online --instance-ids $INSTANCE_ID --region $AWS_REGION
+                    aws ec2 wait instance-running --instance-id $INSTANCE_ID --region $AWS_DEFAULT_REGION
 
                     COMMAND_ID = $(aws ssm send-command \
-                        --instance-ids $INSTANCE_ID \
+                        --instance-id $INSTANCE_ID \
                         --document-name "AWS-RunShellScript" \
-                        --targets "key=instanceIds, Values=$INSTANCE_ID" \
                         --parameters 'commands=[
                             "sudo yum update -y",
                             "sudo amazon-linux-extras install docker -y",
-                            "sudo service docker start",
+                            "sudo systemctl start docker",
                             "docker build -t my-node-app .",
                             "docker run -d -p 3000:3000 my-node-app"
                             ]' \
-                        --region $AWS_REGION \
-                        --query Command.CommandId \
+                        --region $AWS_DEFAULT_REGION \
+                        --query "Command.CommandId" \
                         --output text)
                     echo "Docker deployment command sent. Command ID: $COMMAND_ID"
 
                     aws ssm wait command-executed \
-                        --command-id $COMMAND_ID \
+                        --command-id "$COMMAND_ID" \
                         --instance-id $INSTANCE_ID \
-                        --region $AWS_REGION
+                        --region $AWS_DEFAULT_REGION
 
                     aws ssm get-command-invocation \
                         --command-id $COMMAND_ID \
                         --instance-id $INSTANCE_ID \
-                        --region $AWS_REGION 
+                        --region $AWS_DEFAULT_REGION 
                 }
 
-                deploy_docker $INSTANCE_ID $AWS_REGION $EC2_PUBLIC_IP
                 echo "Application deployed! Access it at http://$EC2_PUBLIC_IP:3000
                 '''
             }
