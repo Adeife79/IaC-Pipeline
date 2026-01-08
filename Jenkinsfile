@@ -59,9 +59,12 @@ pipeline {
         }
 
         stage('Build and Run Docker App via SSM') {
+            environment {
+                AWS_REGION = 'eu-north-1'
+            }
             steps {
                 script { 
-                    env.EC2_PUBLIC_IP = sh(
+                    EC2_PUBLIC_IP = sh(
                         script: "cd terraform-config && terraform output -raw ec2_public_ip",
                         returnStdout: true
                     ).trim()
