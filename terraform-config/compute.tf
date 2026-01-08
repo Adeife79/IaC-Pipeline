@@ -1,5 +1,4 @@
 data "aws_iam_role" "ssm_role" {
-  name = "AmazonSSMRoleForEC2"
   name = "AWSSSMManagedInstanceCore"
 }
 
