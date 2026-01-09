@@ -5,6 +5,7 @@ pipeline {
         AWS_ACCESS_KEY_ID = credentials('aws-access-key')
         AWS_SECRET_ACCESS_KEY = credentials('aws-secret-access-key')
         AWS_DEFAULT_REGION = 'eu-north-1'
+        DOCKER_IMAGE = 'my-node-app:latest'
     } 
     
     stages {
@@ -58,6 +59,23 @@ pipeline {
             }
         }
 
+        stage('Build Docker Image and Push to Docker Hub'){
+            steps {
+                withCredentials([usernamePassword(
+                    credentialsId: 'dockerhub-creds',
+                    usernameVariable: 'DOCKER_USER',
+                    passwordVariable: 'DOCKER_PASS'
+                )]) {
+                    sh '''
+                        docker build -t $DOCKER_IMAGE .
+                        echo "$DOCKER_PASS" | docker login -u "$DOCKER_USER" --password-stdin
+                        docker tag $DOCKER_IMAGE $DOCKER_USER/$DOCKER_IMAGE
+                        docker push $DOCKER_USER/$DOCKER_IMAGE
+                    '''
+                }
+            }
+        }
+
         stage('Build and Run Docker App via SSM') {
             steps {
                 script { 
@@ -79,10 +97,10 @@ pipeline {
                         --document-name "AWS-RunShellScript" \
                         --parameters 'commands=[
                             "sudo yum update -y",
-                            "sudo amazon-linux-extras install docker -y",
+                            "sudo yum install docker -y",
                             "sudo systemctl start docker",
-                            "docker build -t my-node-app .",
-                            "docker run -d -p 3000:3000 my-node-app"
+                            "docker pull '"$DOCKER_USER"'/$DOCKER_IMAGE",
+                            "docker run -d -p 3000:3000 '"$DOCKER_USER"'/$DOCKER_IMAGE"
                             ]' \
                         --region $AWS_DEFAULT_REGION \
                         --query "Command.CommandId" \
