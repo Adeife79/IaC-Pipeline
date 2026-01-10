@@ -24,6 +24,11 @@ data "aws_iam_role" "ssm_role" {
   name = "SSMRoleForEC2"
 }
 
+resource "aws_iam_role_policy_attachment" "ssm_policy_attach" {
+  role = data.aws_iam_role.ssm_role.name
+  policy_arn = "arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore"
+}
+
 data "aws_iam_instance_profile" "ssm_instance_profile" {
   name = "SSMInstanceProfile"
 #  role = data.aws_iam_role.ssm_role.name
